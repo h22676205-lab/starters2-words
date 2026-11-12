@@ -457,7 +457,7 @@ function renderQuiz(){
     if(quiz.lock)return;quiz.lock=true;
     const ok=b.dataset.w===x.w;
     if(ok){b.classList.add("right");quiz.score++;say(x.w)}else{b.classList.add("wrong");document.querySelector(`.opt[data-w="${CSS.escape(x.w)}"]`).classList.add("right");say(x.w)}
-    setTimeout(()=>{quiz.i++;renderQuiz()},ok?900:1600);
+    setTimeout(()=>{quiz.i++;renderQuiz()},ok?1900:2600);
   });
 }
 
