@@ -372,12 +372,19 @@ let voice=null;
 let slow=store.get("s2-slow",false);
 function pickVoice(){if(!("speechSynthesis" in window))return;const vs=speechSynthesis.getVoices().filter(v=>voiceScore(v)>0);voice=vs.sort((a,b)=>voiceScore(b)-voiceScore(a))[0]||null}
 if("speechSynthesis" in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
-function speakNow(t){const u=new SpeechSynthesisUtterance(t);u.lang="en-GB";if(voice)u.voice=voice;u.rate=slow?.55:.8;u.pitch=1.05;speechSynthesis.speak(u)}
-function say(t){if(!("speechSynthesis" in window))return;try{
-  if(!voice)pickVoice();
-  /* iOS Safari 在 cancel() 之後立刻 speak() 常會被吞掉，所以只在正在唸時才 cancel，並稍等一下 */
-  if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(()=>speakNow(t),80)}else speakNow(t);
-}catch(e){}}
+function speakNow(t,done){const u=new SpeechSynthesisUtterance(t);u.lang="en-GB";if(voice)u.voice=voice;u.rate=slow?.55:.8;u.pitch=1.05;if(done){u.onend=done;u.onerror=done}speechSynthesis.speak(u)}
+/* done：唸完（或唸不出來）時呼叫一次 */
+function say(t,done){
+  let called=false;const fin=()=>{if(called)return;called=true;clearTimeout(guard);done&&done()};
+  /* 保險：裝置不支援語音或沒觸發結束事件時，最多等 6 秒 */
+  const guard=done?setTimeout(fin,6000):0;
+  if(!("speechSynthesis" in window)){fin();return}
+  try{
+    if(!voice)pickVoice();
+    /* iOS Safari 在 cancel() 之後立刻 speak() 常會被吞掉，所以只在正在唸時才 cancel，並稍等一下 */
+    if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(()=>speakNow(t,done?fin:null),80)}else speakNow(t,done?fin:null);
+  }catch(e){fin()}
+}
 /* iPhone／iPad 要先在手指點擊時唸過一次，之後自動播放（例如測驗的聽力題）才會有聲音 */
 let unlocked=false;
 function unlockSpeech(){if(unlocked||!("speechSynthesis" in window))return;unlocked=true;try{const u=new SpeechSynthesisUtterance(" ");u.volume=0;speechSynthesis.speak(u)}catch(e){}}
@@ -456,8 +463,10 @@ function renderQuiz(){
   document.querySelectorAll(".opt").forEach(b=>b.onclick=()=>{
     if(quiz.lock)return;quiz.lock=true;
     const ok=b.dataset.w===x.w;
-    if(ok){b.classList.add("right");quiz.score++;say(x.w)}else{b.classList.add("wrong");document.querySelector(`.opt[data-w="${CSS.escape(x.w)}"]`).classList.add("right");say(x.w)}
-    setTimeout(()=>{quiz.i++;renderQuiz()},ok?1900:2600);
+    if(ok){b.classList.add("right");quiz.score++}else{b.classList.add("wrong");document.querySelector(`.opt[data-w="${CSS.escape(x.w)}"]`).classList.add("right")}
+    /* 單字完整唸完後，再停 1 秒（答錯多停半秒看正確答案）才進下一題 */
+    const q=quiz;
+    say(x.w,()=>setTimeout(()=>{if(quiz!==q)return;quiz.i++;renderQuiz()},ok?1000:1500));
   });
 }
 
