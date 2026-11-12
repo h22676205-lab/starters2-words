@@ -372,7 +372,17 @@ let voice=null;
 let slow=store.get("s2-slow",false);
 function pickVoice(){if(!("speechSynthesis" in window))return;const vs=speechSynthesis.getVoices().filter(v=>voiceScore(v)>0);voice=vs.sort((a,b)=>voiceScore(b)-voiceScore(a))[0]||null}
 if("speechSynthesis" in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
-function say(t){if(!("speechSynthesis" in window))return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang="en-GB";if(voice)u.voice=voice;u.rate=slow?.55:.8;u.pitch=1.05;speechSynthesis.speak(u)}catch(e){}}
+function speakNow(t){const u=new SpeechSynthesisUtterance(t);u.lang="en-GB";if(voice)u.voice=voice;u.rate=slow?.55:.8;u.pitch=1.05;speechSynthesis.speak(u)}
+function say(t){if(!("speechSynthesis" in window))return;try{
+  if(!voice)pickVoice();
+  /* iOS Safari 在 cancel() 之後立刻 speak() 常會被吞掉，所以只在正在唸時才 cancel，並稍等一下 */
+  if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(()=>speakNow(t),80)}else speakNow(t);
+}catch(e){}}
+/* iPhone／iPad 要先在手指點擊時唸過一次，之後自動播放（例如測驗的聽力題）才會有聲音 */
+let unlocked=false;
+function unlockSpeech(){if(unlocked||!("speechSynthesis" in window))return;unlocked=true;try{const u=new SpeechSynthesisUtterance(" ");u.volume=0;speechSynthesis.speak(u)}catch(e){}}
+document.addEventListener("pointerdown",unlockSpeech,{once:false,capture:true});
+document.addEventListener("keydown",unlockSpeech,{capture:true});
 
 function renderTop(){
   document.documentElement.style.setProperty("--uc",UNIT_COLOR[st.unit]);
@@ -417,22 +427,28 @@ function renderList(){
 }
 
 function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a}
-function newQuiz(){const ws=shuffle(words()).slice(0,10);quiz={list:ws,i:0,score:0,lock:false};renderQuiz()}
+function newQuiz(start){const ws=shuffle(words()).slice(0,10);quiz={list:ws,i:0,score:0,lock:false,started:!!start};renderQuiz()}
 function renderQuiz(){
-  if(!quiz)return newQuiz();
+  if(!quiz)return newQuiz(false);
   const {list,i}=quiz;
+  if(!quiz.started){
+    $("#main").innerHTML=`<div class="stage"><div class="q done"><div class="big">🎧</div>
+      <div class="score">Unit ${st.unit}${st.part?" · Part "+st.part:""}・${list.length} 題</div>
+      <div class="hint">聽力題和看圖題輪流出，記得打開聲音喔！</div>
+      <button class="btn say" id="qstart" style="font-size:24px;padding:16px 32px">開始測驗</button></div></div>`;
+    $("#qstart").onclick=()=>{unlockSpeech();quiz.started=true;renderQuiz()};return}
   if(i>=list.length){const pct=quiz.score/list.length;
     $("#main").innerHTML=`<div class="stage"><div class="q done"><div class="big">${pct===1?"🏆":pct>=.7?"🎉":"💪"}</div>
       <div class="score">答對 ${quiz.score} / ${list.length} 題</div><div class="hint">${pct===1?"全對！太厲害了！":pct>=.7?"很棒！再挑戰一次吧":"多翻幾次卡片再來挑戰！"}</div>
       <button class="btn say" id="again">再玩一次</button></div></div>`;
-    $("#again").onclick=newQuiz;return}
+    $("#again").onclick=()=>newQuiz(true);return}
   const x=list[i]; const pool=shuffle(words().filter(y=>y.w!==x.w)).slice(0,3);
-  const type=i%2; // 0: 看圖中文選英文  1: 聽英文選中文
+  const type=(i+1)%2; // 1: 聽英文選中文（第 1 題先出聽力題）  0: 看圖中文選英文
   const opts=shuffle([x,...pool]);
   $("#main").innerHTML=`<div class="stage"><div class="progress">第 ${i+1} / ${list.length} 題・答對 ${quiz.score}</div>
     <div class="bar"><i style="width:${i/list.length*100}%"></i></div>
     <div class="q"><div class="qtype">${type?"聽聽看，是什麼意思？":"這個英文怎麼說？"}</div>
-      ${type?`<button class="btn say" id="qsay" style="font-size:28px;padding:18px 28px">🔊 再聽一次</button>`:`${pic(x)}<div class="zh">${esc(x.z)}</div>`}
+      ${type?`<button class="btn say" id="qsay" style="font-size:28px;padding:18px 28px">🔊 聽發音</button><div class="hint">沒聽到的話，按上面的按鈕再聽一次</div>`:`${pic(x)}<div class="zh">${esc(x.z)}</div><div class="hint">選完會唸給你聽</div>`}
       <div class="opts">${opts.map((o,k)=>`<button class="opt ${type?"zhopt":""}" id="opt-${k}" data-w="${esc(o.w)}">${esc(type?o.z:o.w)}</button>`).join("")}</div>
     </div></div>`;
   if(type){say(x.w);$("#qsay").onclick=()=>say(x.w)}
