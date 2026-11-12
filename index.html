@@ -133,7 +133,7 @@ main{margin-top:16px}
     </div>
   </header>
   <main id="main"></main>
-  <p class="note">點 🔊 聽英文發音（使用裝置內建語音）。按「學會了」會幫你記星星，存在這台裝置上。</p>
+  <p class="note">點 🔊 聽英文發音：會自動挑這台裝置上最接近課本的英式聲音，按 🐢 可以唸慢一點。電腦用 Edge 瀏覽器、iPhone 在「設定 › 輔助使用 › 語音內容」下載英式「加強版」聲音，聽起來會最自然。按「學會了」會幫你記星星，存在這台裝置上。</p>
 </div>
 
 <script>
@@ -355,10 +355,24 @@ function words(){const u=DATA[st.unit];if(st.part)return u[st.part];const seen=n
 function pic(x,cls=""){return x.e?`<div class="pic ${cls}" aria-hidden="true">${x.e}</div>`:`<div class="letter" aria-hidden="true">${esc(x.w[0].toUpperCase())}</div>`}
 function save(){store.set("s2-state",{unit:st.unit,part:st.part,mode:st.mode,idx:st.idx})}
 
+/* 課本音檔是英式口音：優先挑英式、女聲、自然音色（Natural／Neural／Enhanced）的聲音 */
+const FEMALE=["female","libby","sonia","maisie","mia","hazel","susan","kate","serena","martha","stephanie","fiona","moira","tessa","karen","victoria","zoe","google uk english female"];
+const MALE=["male","ryan","thomas","george","daniel","arthur","oliver","alfie","elliot","ethan","noah","fred","tom","alex","google uk english male"];
+const NATURAL=["natural","neural","online","premium","enhanced","google"];
+function voiceScore(v){
+  const n=v.name.toLowerCase(), lang=v.lang.replace("_","-").toLowerCase();
+  let s=0;
+  if(lang==="en-gb")s+=100; else if(lang==="en-ie"||lang==="en-au")s+=40; else if(lang.startsWith("en"))s+=20; else return -999;
+  if(FEMALE.some(h=>n.includes(h)))s+=50; else if(MALE.some(h=>n.includes(h)))s-=30;
+  if(NATURAL.some(h=>n.includes(h)))s+=40;
+  if(n.includes("compact")||n.includes("eloquence"))s-=40;
+  return s;
+}
 let voice=null;
-function pickVoice(){if(!("speechSynthesis" in window))return;const vs=speechSynthesis.getVoices();voice=vs.find(v=>/en-GB/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null}
+let slow=store.get("s2-slow",false);
+function pickVoice(){if(!("speechSynthesis" in window))return;const vs=speechSynthesis.getVoices().filter(v=>voiceScore(v)>0);voice=vs.sort((a,b)=>voiceScore(b)-voiceScore(a))[0]||null}
 if("speechSynthesis" in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
-function say(t){if(!("speechSynthesis" in window))return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang=voice?voice.lang:"en-GB";if(voice)u.voice=voice;u.rate=.8;speechSynthesis.speak(u)}catch(e){}}
+function say(t){if(!("speechSynthesis" in window))return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang="en-GB";if(voice)u.voice=voice;u.rate=slow?.55:.8;u.pitch=1.05;speechSynthesis.speak(u)}catch(e){}}
 
 function renderTop(){
   document.documentElement.style.setProperty("--uc",UNIT_COLOR[st.unit]);
@@ -383,11 +397,13 @@ function renderCard(){
     <div class="ctrl">
       <button class="btn" id="prev" aria-label="上一個">◀</button>
       <button class="btn say" id="say">🔊 聽發音</button>
+      <button class="btn got" id="slow" aria-pressed="${slow}">🐢 慢慢唸</button>
       <button class="btn got" id="got" aria-pressed="${isGot}">${isGot?"✔ 學會了":"學會了"}</button>
       <button class="btn" id="next" aria-label="下一個">▶</button>
     </div></div>`;
   $("#card").onclick=()=>{flipped=!flipped;$("#card").classList.toggle("flip",flipped);if(flipped)say(x.w)};
   $("#say").onclick=()=>say(x.w);
+  $("#slow").onclick=()=>{slow=!slow;store.set("s2-slow",slow);$("#slow").setAttribute("aria-pressed",slow);say(x.w)};
   $("#prev").onclick=()=>{st.idx=(st.idx-1+ws.length)%ws.length;save();renderCard()};
   $("#next").onclick=()=>{st.idx=(st.idx+1)%ws.length;save();renderCard()};
   $("#got").onclick=()=>{learned.has(x.w)?learned.delete(x.w):learned.add(x.w);store.set("s2-learned",[...learned]);renderTop();renderCard()};
